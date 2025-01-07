@@ -51,7 +51,7 @@ class MainActivity : AppCompatActivity() {
         bluetoothAdapter = BluetoothAdapter.getDefaultAdapter()
 
         if (bluetoothAdapter == null) {
-            showMessage("بلوتوث در دستگاه شما پشتیبانی نمی‌شود.")
+            showMessage("Bluetooth is not supported on your device.")
             return
         }
 
@@ -75,9 +75,9 @@ class MainActivity : AppCompatActivity() {
     private val bluetoothLauncher =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
             if (bluetoothAdapter!!.isEnabled)
-                showMessage("بلوتوث فعال شد.")
+                showMessage("Bluetooth is activated.")
             else
-                showMessage("بلوتوث فعال نشد.")
+                showMessage("Bluetooth was not activated.")
         }
 
     private fun connectToDevice() {
@@ -109,7 +109,7 @@ class MainActivity : AppCompatActivity() {
                 bluetoothSocket?.connect()
 
                 withContext(Dispatchers.Main) {
-                    showMessage("اتصال برقرار شد.")
+                    showMessage("Connection successfully!")
                     with(binding) {
                         btnConnect.text = getString(R.string.pressToDisconnect)
                         txtLoading.text = getString(R.string.connected)
@@ -126,7 +126,7 @@ class MainActivity : AppCompatActivity() {
             } catch (e: IOException) {
                 e.printStackTrace()
                 withContext(Dispatchers.Main) {
-                    showMessage("خطا در اتصال به دستگاه.")
+                    showMessage("Error connecting to the device.")
                     deviceDisconnectedUpdateUI(true)
                 }
             }
@@ -162,7 +162,7 @@ class MainActivity : AppCompatActivity() {
                     } catch (e: IOException) {
                         e.printStackTrace()
                         runOnUiThread {
-                            showMessage("ارتباط قطع شد.")
+                            showMessage("The connection was lost.")
                             deviceDisconnectedUpdateUI(true)
                         }
                         break
@@ -177,24 +177,49 @@ class MainActivity : AppCompatActivity() {
         try {
             val dataModel = Gson().fromJson(json, DataModel::class.java)
             with(binding) {
-                txtTemp.text = "${dataModel.temperature}°"
-                txtHumidity.text = "${dataModel.humidity}%"
+                txtTemp.text = formatTemperature(dataModel.temperature)
+                txtHumidity.text = formatHumidity(dataModel.humidity)
+
+                dataModel.temperature?.let {
+                    txtTemp.setTextColor(getTempColor(it))
+                }
+
+                dataModel.humidity?.let {
+                    txtHumidity.setTextColor(getHumidityColor(it))
+                }
             }
         } catch (e: Exception) {
             e.printStackTrace()
-            showMessage("خطا در پردازش JSON.")
+            showMessage("Error processing JSON.")
         }
     }
+
+    // Helper function to format temperature text
+    private fun formatTemperature(temperature: Double?): String =
+        temperature?.let { "$it°" } ?: "N/A"
+
+    // Helper function to format humidity text
+    private fun formatHumidity(humidity: Double?): String =
+        humidity?.let { "$it%" } ?: "N/A"
+
+    // Helper function to determine temperature color
+    private fun getTempColor(temperature: Double): Int =
+        if (temperature > 20 || temperature < -20) getColor(R.color.red) else getColor(R.color.green)
+
+    // Helper function to determine humidity color
+    private fun getHumidityColor(humidity: Double): Int =
+        if (humidity > 50) getColor(R.color.red) else getColor(R.color.green)
+
 
     private fun disconnectDevice() {
         try {
             bluetoothSocket?.close()
             bluetoothSocket = null
-            showMessage("اتصال قطع شد.")
+            showMessage("The connection was disconnected.")
             deviceDisconnectedUpdateUI()
         } catch (e: IOException) {
             e.printStackTrace()
-            showMessage("خطا در قطع اتصال.")
+            showMessage("Error disconnecting.")
         }
     }
 
@@ -206,7 +231,7 @@ class MainActivity : AppCompatActivity() {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == REQUEST_BLUETOOTH_PERMISSION) {
             if (!grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED)
-                showMessage("مجوز اتصال بلوتوث رد شد.")
+                showMessage("Bluetooth connection permission denied.")
         }
     }
 
@@ -228,6 +253,10 @@ class MainActivity : AppCompatActivity() {
                     txtLoading.isVisible = false
                 }
             }
+            if (txtTemp.currentTextColor != getColor(R.color.green))
+                txtTemp.setTextColor(getColor(R.color.green))
+            if (txtHumidity.currentTextColor != getColor(R.color.green))
+                txtHumidity.setTextColor(getColor(R.color.green))
         }
     }
 
