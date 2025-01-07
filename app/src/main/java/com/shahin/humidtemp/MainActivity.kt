@@ -204,11 +204,11 @@ class MainActivity : AppCompatActivity() {
 
     // Helper function to determine temperature color
     private fun getTempColor(temperature: Double): Int =
-        if (temperature > 20 || temperature < -20) getColor(R.color.red) else getColor(R.color.green)
+        if (temperature > 30 || temperature < 10) getColor(R.color.red) else getColor(R.color.green)
 
     // Helper function to determine humidity color
     private fun getHumidityColor(humidity: Double): Int =
-        if (humidity > 50) getColor(R.color.red) else getColor(R.color.green)
+        if (humidity > 70 || humidity < 30) getColor(R.color.red) else getColor(R.color.green)
 
 
     private fun disconnectDevice() {
