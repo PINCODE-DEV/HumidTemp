@@ -9,15 +9,20 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
-import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
+import androidx.core.view.isVisible
+import androidx.lifecycle.lifecycleScope
+import com.google.android.material.snackbar.Snackbar
 import com.google.gson.Gson
 import com.shahin.humidtemp.databinding.ActivityMainBinding
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.IOException
 import java.io.InputStream
-import java.util.*
 
 class MainActivity : AppCompatActivity() {
 
@@ -27,33 +32,36 @@ class MainActivity : AppCompatActivity() {
 
     private var bluetoothAdapter: BluetoothAdapter? = null
     private var bluetoothSocket: BluetoothSocket? = null
-    private val MY_UUID: UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB")
-    private val DEVICE_ADDRESS = "00:00:13:02:67:1F" // آدرس MAC دستگاه بلوتوث
-    private val REQUEST_BLUETOOTH_PERMISSION = 101
+
+    private var isConnected = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         _binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
+        binding.btnConnect.shrink()
+
+        lifecycleScope.launch(Dispatchers.Default) {
+            delay(2500)
+            withContext(Dispatchers.Main) {
+                binding.btnConnect.extend()
+            }
+        }
 
         bluetoothAdapter = BluetoothAdapter.getDefaultAdapter()
 
         if (bluetoothAdapter == null) {
-            showToast("بلوتوث در دستگاه شما پشتیبانی نمی‌شود.")
+            showMessage("بلوتوث در دستگاه شما پشتیبانی نمی‌شود.")
             return
         }
 
-        // فعال‌سازی بلوتوث
         enableBluetooth()
 
-        // دکمه اتصال
         binding.btnConnect.setOnClickListener {
-            connectToDevice()
-        }
-
-        // دکمه قطع اتصال
-        binding.btnDisconnect.setOnClickListener {
-            disconnectDevice()
+            if (!isConnected)
+                connectToDevice()
+            else
+                disconnectDevice()
         }
     }
 
@@ -66,14 +74,18 @@ class MainActivity : AppCompatActivity() {
 
     private val bluetoothLauncher =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
-            if (bluetoothAdapter!!.isEnabled) {
-                showToast("بلوتوث فعال شد.")
-            } else {
-                showToast("بلوتوث فعال نشد.")
-            }
+            if (bluetoothAdapter!!.isEnabled)
+                showMessage("بلوتوث فعال شد.")
+            else
+                showMessage("بلوتوث فعال نشد.")
         }
 
     private fun connectToDevice() {
+        binding.txtLoading.apply {
+            text = getString(R.string.connectingToDevice)
+            isVisible = true
+        }
+
         val device: BluetoothDevice = bluetoothAdapter!!.getRemoteDevice(DEVICE_ADDRESS)
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -91,16 +103,36 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        try {
-            bluetoothSocket = device.createRfcommSocketToServiceRecord(MY_UUID)
-            bluetoothSocket?.connect()
-            showToast("اتصال برقرار شد.")
-            startListeningForData()
-        } catch (e: IOException) {
-            e.printStackTrace()
-            showToast("خطا در اتصال به دستگاه.")
+        lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                bluetoothSocket = device.createRfcommSocketToServiceRecord(MY_UUID)
+                bluetoothSocket?.connect()
+
+                withContext(Dispatchers.Main) {
+                    showMessage("اتصال برقرار شد.")
+                    with(binding) {
+                        btnConnect.text = getString(R.string.pressToDisconnect)
+                        txtLoading.text = getString(R.string.connected)
+                        lifecycleScope.launch(Dispatchers.Default) {
+                            delay(2500)
+                            withContext(Dispatchers.Main) {
+                                txtLoading.isVisible = false
+                            }
+                        }
+                    }
+                }
+
+                startListeningForData()
+            } catch (e: IOException) {
+                e.printStackTrace()
+                withContext(Dispatchers.Main) {
+                    showMessage("خطا در اتصال به دستگاه.")
+                    deviceDisconnectedUpdateUI(true)
+                }
+            }
         }
     }
+
 
     private fun startListeningForData() {
         val inputStream: InputStream? = bluetoothSocket?.inputStream
@@ -116,17 +148,13 @@ class MainActivity : AppCompatActivity() {
                         bytes = inputStream.read(buffer)
                         val receivedChunk = String(buffer, 0, bytes)
 
-                        // افزودن بخش جدید به stringBuilder
                         stringBuilder.append(receivedChunk)
 
-                        // اگر پیام کامل دریافت شد (مثلاً شامل '\n' باشد)
                         if (stringBuilder.contains("\n")) {
                             val fullMessage = stringBuilder.toString().trim()
 
-                            // حذف داده‌های پردازش‌شده از stringBuilder
                             stringBuilder.clear()
 
-                            // پردازش داده کامل JSON
                             runOnUiThread {
                                 parseJsonData(fullMessage)
                             }
@@ -134,7 +162,8 @@ class MainActivity : AppCompatActivity() {
                     } catch (e: IOException) {
                         e.printStackTrace()
                         runOnUiThread {
-                            showToast("ارتباط قطع شد.")
+                            showMessage("ارتباط قطع شد.")
+                            deviceDisconnectedUpdateUI(true)
                         }
                         break
                     }
@@ -147,23 +176,25 @@ class MainActivity : AppCompatActivity() {
     private fun parseJsonData(json: String) {
         try {
             val dataModel = Gson().fromJson(json, DataModel::class.java)
-            binding.tvData.text =
-                "Timestamp: ${dataModel.timestamp}\nTemperature: ${dataModel.temperature}\nHumidity: ${dataModel.humidity}"
+            with(binding) {
+                txtTemp.text = "${dataModel.temperature}°"
+                txtHumidity.text = "${dataModel.humidity}%"
+            }
         } catch (e: Exception) {
             e.printStackTrace()
-            showToast("خطا در پردازش JSON.")
+            showMessage("خطا در پردازش JSON.")
         }
     }
-
 
     private fun disconnectDevice() {
         try {
             bluetoothSocket?.close()
             bluetoothSocket = null
-            showToast("اتصال قطع شد.")
+            showMessage("اتصال قطع شد.")
+            deviceDisconnectedUpdateUI()
         } catch (e: IOException) {
             e.printStackTrace()
-            showToast("خطا در قطع اتصال.")
+            showMessage("خطا در قطع اتصال.")
         }
     }
 
@@ -174,15 +205,33 @@ class MainActivity : AppCompatActivity() {
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == REQUEST_BLUETOOTH_PERMISSION) {
-            if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                connectToDevice()
-            } else {
-                showToast("مجوز اتصال بلوتوث رد شد.")
+            if (!grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED)
+                showMessage("مجوز اتصال بلوتوث رد شد.")
+        }
+    }
+
+    private fun deviceDisconnectedUpdateUI(isConnectionLost: Boolean = false) {
+        with(binding) {
+            txtTemp.text = getString(R.string.empty)
+            txtHumidity.text = getString(R.string.empty)
+            btnConnect.text = getString(R.string.pressToConnect)
+            txtLoading.apply {
+                text = if (isConnectionLost)
+                    getString(R.string.connectionLost)
+                else
+                    getString(R.string.disconnected)
+                isVisible = true
+            }
+            lifecycleScope.launch(Dispatchers.Default) {
+                delay(2500)
+                withContext(Dispatchers.Main) {
+                    txtLoading.isVisible = false
+                }
             }
         }
     }
 
-    private fun showToast(message: String) {
-        Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
+    private fun showMessage(message: String) {
+        Snackbar.make(binding.root, message, Snackbar.LENGTH_SHORT).show()
     }
 }
